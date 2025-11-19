@@ -22,7 +22,7 @@ private const val DEFAULT_DISPLAY_DIGITS = 4
 
 data class MatrixStep(
     val operation: String,
-    val matrixState: Array<DoubleArray> // A snapshot of the matrix after the operation
+    val matrixState: Array<DoubleArray>
 )
 
 class GaussianEliminationViewModel : ViewModel() {
@@ -179,14 +179,6 @@ class GaussianEliminationViewModel : ViewModel() {
         isMatrixReady = validateMatrixReady()
     }
 
-    /**
-     * New behavior:
-     * - Perform forward elimination (steps 1..4) until matrix becomes upper-triangular (zeros under pivots).
-     * - Then add a dedicated step that shows the final matrix snapshot.
-     * - Then add a separate highlighted step that contains the back-substitution equations block (one equation per line),
-     *   compute the variable values and return the solution summary.
-     * - Do NOT perform elimination above pivots.
-     */
     fun solve() {
         errorMessage = null
         resultText = ""
@@ -211,7 +203,6 @@ class GaussianEliminationViewModel : ViewModel() {
                     DoubleArray(colsAug) { c ->
                         val v = matrixInputStrings[r][c]
                         if (v == "-" || v.isEmpty() || v == "-.") throw IllegalArgumentException("Row ${r + 1}, Col ${c + 1} invalid input: '$v'")
-                        // support simple fraction input like "1/2"
                         val parsed = if (v.contains("/")) {
                             val parts = v.split("/")
                             if (parts.size == 2) {
@@ -253,43 +244,29 @@ class GaussianEliminationViewModel : ViewModel() {
         }
     }
 
-    /**
-     * Forward elimination (steps 1..4) with logging, then back-substitution.
-     * This version inserts a MatrixStep that shows the final matrix snapshot BEFORE the equations block step.
-     */
     private fun forwardThenBackSub_ShowFinalMatrixFirst(rows: Int, unknowns: Int, aInput: Array<DoubleArray>): Pair<List<MatrixStep>, String> {
         val a = Array(rows) { r -> aInput[r].clone() }
         val log = mutableListOf<MatrixStep>()
         log.add(MatrixStep("Initial augmented matrix:", deepCopy(a)))
-
         var pivotRow = 0
-        val pivotPositions = mutableListOf<Pair<Int,Int>>() // list of (pivotRow, pivotCol)
-
-        // Forward elimination (steps 1..4)
+        val pivotPositions = mutableListOf<Pair<Int,Int>>()
         for (col in 0 until unknowns) {
             if (pivotRow >= rows) break
-
-            // STEP 1: Find pivot (partial pivoting)
             var iMax = pivotRow
             for (r in pivotRow + 1 until rows) {
                 if (abs(a[r][col]) > abs(a[iMax][col])) iMax = r
             }
             log.add(MatrixStep("Step 1 (Find pivot) - Column ${col + 1}: candidate row ${iMax + 1} (value = ${formatSmart(a[iMax][col])})", deepCopy(a)))
-
             if (abs(a[iMax][col]) < EPS) {
                 log.add(MatrixStep("Column ${col + 1}: no valid pivot (column ~ 0), skip column", deepCopy(a)))
                 continue
             }
-
-            // STEP 2: Swap rows if needed
             if (iMax != pivotRow) {
                 val tmp = a[pivotRow]; a[pivotRow] = a[iMax]; a[iMax] = tmp
                 log.add(MatrixStep("Step 2 (Swap) - Swap R${pivotRow + 1} <-> R${iMax + 1}", deepCopy(a)))
             } else {
                 log.add(MatrixStep("Step 2 (Swap) - No swap needed (R${pivotRow + 1} is pivot row)", deepCopy(a)))
             }
-
-            // STEP 3: Scale pivot row to make leading 1
             val pivotValBefore = a[pivotRow][col]
             if (abs(pivotValBefore - 1.0) > EPS) {
                 for (j in col until unknowns + 1) {
@@ -300,11 +277,7 @@ class GaussianEliminationViewModel : ViewModel() {
             } else {
                 log.add(MatrixStep("Step 3 (Scale) - Pivot already ~1 in R${pivotRow + 1}", deepCopy(a)))
             }
-
-            // Record pivot position
             pivotPositions.add(pivotRow to col)
-
-            // STEP 4: Eliminate below pivot
             for (r in pivotRow + 1 until rows) {
                 val factor = a[r][col]
                 if (abs(factor) < EPS) continue
@@ -314,14 +287,9 @@ class GaussianEliminationViewModel : ViewModel() {
                 }
                 log.add(MatrixStep("Step 4 (Eliminate below) - R${r + 1} -> R${r + 1} - (${formatSmart(factor)}) * R${pivotRow + 1}", deepCopy(a)))
             }
-
             pivotRow += 1
         }
-
-        // Add snapshot of the final matrix AFTER forward elimination and BEFORE listing equations
         log.add(MatrixStep("Final matrix after forward elimination (upper-triangular under pivots):", deepCopy(a)))
-
-        // Check inconsistency
         for (r in 0 until rows) {
             var allZero = true
             for (c in 0 until unknowns) {
@@ -331,8 +299,6 @@ class GaussianEliminationViewModel : ViewModel() {
                 throw IllegalStateException("Inconsistent system: row ${r + 1} reduces to 0 = ${formatSmart(a[r][unknowns])}")
             }
         }
-
-        // compute rank
         var rank = 0
         for (r in 0 until rows) {
             var rowHasPivot = false
@@ -341,23 +307,16 @@ class GaussianEliminationViewModel : ViewModel() {
             }
             if (rowHasPivot) rank += 1
         }
-
         if (rank < unknowns) {
-            // Free variables -> infinite solutions. We'll still show forward-elimination result.
             val msg = StringBuilder()
             msg.append("Rank = $rank, Unknowns = $unknowns → Infinite solutions (free variables exist).\n")
             msg.append("Forward elimination result shown above. Cannot compute unique solution by back-substitution.\n")
             return Pair(log, msg.toString())
         }
-
-        // Back-substitution: collect equations, then add them as a single neatly formatted block
         val x = DoubleArray(unknowns) { 0.0 }
         val equationsText = mutableListOf<String>()
-
-        // process pivots from bottom to top
         for (idx in pivotPositions.size - 1 downTo 0) {
             val (prow, pcol) = pivotPositions[idx]
-            // compute sum of known terms: sum_{j>pcol} a[prow][j]*x[j]
             var sumKnown = 0.0
             val terms = mutableListOf<String>()
             for (j in pcol + 1 until unknowns) {
@@ -367,29 +326,19 @@ class GaussianEliminationViewModel : ViewModel() {
                 sumKnown += coeff * x[j]
             }
             val rhs = a[prow][unknowns]
-            // Build pretty equation string: e.g.
-            // x1 + 2x2 + 3x3 = 9
             val leftSide = if (terms.isEmpty()) {
                 "x${pcol + 1}"
             } else {
                 "x${pcol + 1} + ${terms.joinToString(" + ")}"
             }
             val eq = "$leftSide = ${formatSmart(rhs)}"
-            // compute value (pivot should be ~1)
             val coeffPivot = a[prow][pcol]
             val value = (rhs - sumKnown) / coeffPivot
             x[pcol] = value
-            // push equation string (we'll display them stacked)
             equationsText.add(eq)
         }
-
-        // equationsText currently is from bottom-up; reverse to show top-to-bottom (x1, x2, x3)
         val equationsBlock = equationsText.reversed().joinToString("\n")
-
-        // Add a single MatrixStep that contains all equations stacked (but NO duplicated matrix display)
         log.add(MatrixStep("Back-substitution equations:\n$equationsBlock", deepCopy(a)))
-
-        // Finally add the solution summary
         val solutionText = x.mapIndexed { idx, v -> "x${idx + 1} = ${formatSmart(v)}" }.joinToString("\n")
         return Pair(log, "Unique solution found (by back-substitution):\n$solutionText")
     }
@@ -407,7 +356,6 @@ class GaussianEliminationViewModel : ViewModel() {
                 val v = matrixInputStrings[r][c]
                 if (v == "-" || v.isEmpty() || v == "-.") return false
                 if (v.toDoubleOrNull() == null) {
-                    // allow fraction input like "1/2"
                     if (!v.contains("/")) return false
                     val parts = v.split("/")
                     if (parts.size != 2) return false
@@ -429,14 +377,9 @@ class GaussianEliminationViewModel : ViewModel() {
     }
 }
 
-/**
- * Improved formatSmart: uses BigDecimal.valueOf(value) to avoid scientific/string issues from Double.toString(),
- * sets scale based on digits and strips trailing zeros. Returns integer-like values without a decimal part.
- */
 fun formatSmart(value: Double, digits: Int = DEFAULT_DISPLAY_DIGITS): String {
     if (value.isNaN()) return "NaN"
     if (value.isInfinite()) return if (value > 0) "∞" else "-∞"
-
     return try {
         val bd = BigDecimal.valueOf(value).setScale(digits, RoundingMode.HALF_UP).stripTrailingZeros()
         val s = bd.toPlainString()

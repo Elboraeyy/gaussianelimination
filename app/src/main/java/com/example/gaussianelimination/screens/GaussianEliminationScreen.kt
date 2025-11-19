@@ -32,7 +32,7 @@ import com.example.gaussianelimination.viewmodel.formatSmart
 import kotlin.math.abs
 
 private const val MATRIX_COMPARE_EPS = 1e-9
-private const val FINAL_MATRIX_MARKER = "Final matrix" // detect final-matrix step by this prefix
+private const val FINAL_MATRIX_MARKER = "Final matrix"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -92,7 +92,6 @@ fun GaussianEliminationScreen(viewModel: GaussianEliminationViewModel) {
                     }
                 }
             }
-
             item {
                 AnimatedVisibility(visible = viewModel.errorMessage != null) {
                     Card(
@@ -109,7 +108,6 @@ fun GaussianEliminationScreen(viewModel: GaussianEliminationViewModel) {
                     }
                 }
             }
-
             item {
                 AnimatedVisibility(
                     visible = viewModel.isMatrixInputVisible,
@@ -155,7 +153,6 @@ fun GaussianEliminationScreen(viewModel: GaussianEliminationViewModel) {
                     }
                 }
             }
-
             itemsIndexed(viewModel.matrixInputStrings) { rowIndex, row ->
                 AnimatedVisibility(visible = viewModel.isMatrixInputVisible) {
                     Row(
@@ -190,7 +187,6 @@ fun GaussianEliminationScreen(viewModel: GaussianEliminationViewModel) {
                     }
                 }
             }
-
             item {
                 AnimatedVisibility(visible = viewModel.isMatrixInputVisible) {
                     Column {
@@ -211,7 +207,6 @@ fun GaussianEliminationScreen(viewModel: GaussianEliminationViewModel) {
                     }
                 }
             }
-
             item {
                 AnimatedVisibility(
                     visible = viewModel.resultText.isNotEmpty() && !viewModel.isLoading,
@@ -250,8 +245,6 @@ fun GaussianEliminationScreen(viewModel: GaussianEliminationViewModel) {
                     }
                 }
             }
-
-            // Steps list: use itemsIndexed so we can compare each step with previous
             if (viewModel.stepLog.isNotEmpty()) {
                 item {
                     AnimatedVisibility(
@@ -264,7 +257,6 @@ fun GaussianEliminationScreen(viewModel: GaussianEliminationViewModel) {
                         }
                     }
                 }
-
                 itemsIndexed(viewModel.stepLog) { index, step ->
                     AnimatedVisibility(
                         visible = viewModel.stepLog.isNotEmpty() && !viewModel.isLoading,
@@ -281,7 +273,6 @@ fun GaussianEliminationScreen(viewModel: GaussianEliminationViewModel) {
                     }
                 }
             }
-
             item {
                 AnimatedVisibility(
                     visible = viewModel.stepLog.isNotEmpty() && !viewModel.isLoading,
@@ -315,7 +306,6 @@ fun StepDisplay(step: MatrixStep, prevMatrix: Array<DoubleArray>?) {
         .fillMaxWidth()
         .padding(vertical = 6.dp)) {
 
-        // If this step is the block of back-substitution equations, render them prominently
         val backMarker = "Back-substitution equations:"
         if (step.operation.startsWith(backMarker)) {
             val block = step.operation.removePrefix(backMarker).trimStart('\n')
@@ -328,7 +318,6 @@ fun StepDisplay(step: MatrixStep, prevMatrix: Array<DoubleArray>?) {
                 color = MaterialTheme.colorScheme.primary
             )
             Spacer(modifier = Modifier.height(8.dp))
-
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -353,35 +342,23 @@ fun StepDisplay(step: MatrixStep, prevMatrix: Array<DoubleArray>?) {
                 }
             }
             Spacer(modifier = Modifier.height(8.dp))
-
-            // show matrix only if it changed compared to previous snapshot (to avoid duplication)
             if (!matricesEqual(step.matrixState, prevMatrix)) {
                 MatrixDisplay(matrix = step.matrixState)
             }
             return
         }
-
-        // Default rendering for other steps
         Text(step.operation, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary)
         Spacer(modifier = Modifier.height(8.dp))
-
-        // If this is the final matrix step (detect by prefix), ALWAYS show matrix regardless of prevMatrix
         if (step.operation.startsWith(FINAL_MATRIX_MARKER)) {
             MatrixDisplay(matrix = step.matrixState)
             return
         }
-
-        // Otherwise: show matrix ONLY if different from previous step's matrixState (or if no previous)
         if (!matricesEqual(step.matrixState, prevMatrix)) {
             MatrixDisplay(matrix = step.matrixState)
         }
     }
 }
 
-/**
- * Compare two matrix snapshots. Return true if equal (within EPS), false if different.
- * If prev is null -> considered different (so we will show current).
- */
 private fun matricesEqual(a: Array<DoubleArray>?, b: Array<DoubleArray>?): Boolean {
     if (a === b) return true
     if (a == null || b == null) return false
@@ -415,10 +392,7 @@ fun MatrixCell(
         isBColumn -> MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.2f)
         else -> MaterialTheme.colorScheme.surfaceContainer
     }
-
-    // If the value is a valid Double, display using formatSmart for consistent formatting.
     val displayText = value.toDoubleOrNull()?.let { formatSmart(it) } ?: value
-
     Box(
         modifier = modifier
             .fillMaxSize()
