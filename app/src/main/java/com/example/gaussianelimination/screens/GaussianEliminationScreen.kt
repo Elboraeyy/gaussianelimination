@@ -28,6 +28,7 @@ import com.example.gaussianelimination.viewmodel.GaussianEliminationViewModel
 import com.example.gaussianelimination.viewmodel.MatrixStep
 import com.example.gaussianelimination.viewmodel.MAX_SIZE
 import com.example.gaussianelimination.viewmodel.MIN_SIZE
+import com.example.gaussianelimination.viewmodel.SolveMethod
 import com.example.gaussianelimination.viewmodel.formatSmart
 import kotlin.math.abs
 
@@ -82,7 +83,37 @@ fun GaussianEliminationScreen(viewModel: GaussianEliminationViewModel) {
                         steps = (MAX_SIZE - MIN_SIZE - 1),
                         modifier = Modifier.fillMaxWidth()
                     )
+
                     HorizontalDivider(Modifier.padding(vertical = 16.dp))
+
+                    Text(
+                        text = "Solution Method:",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        SolveMethod.entries.forEach { method ->
+                            FilterChip(
+                                selected = viewModel.selectedMethod == method,
+                                onClick = { viewModel.onMethodChange(method) },
+                                label = { Text(method.displayName) },
+                                leadingIcon = if (viewModel.selectedMethod == method) {
+                                    {
+                                        Icon(
+                                            imageVector = Icons.Default.Check,
+                                            contentDescription = "Selected",
+                                            modifier = Modifier.size(FilterChipDefaults.IconSize)
+                                        )
+                                    }
+                                } else null
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(16.dp))
+
                     Button(
                         onClick = viewModel::initializeMatrix,
                         modifier = Modifier.fillMaxWidth()

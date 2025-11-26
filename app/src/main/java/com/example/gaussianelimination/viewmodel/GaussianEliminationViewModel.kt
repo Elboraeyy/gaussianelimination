@@ -1,5 +1,6 @@
 package com.example.gaussianelimination.viewmodel
 
+
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -9,6 +10,7 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
+import java.lang.Math.pow
 import kotlin.math.abs
 import kotlin.random.Random
 import java.math.BigDecimal
@@ -24,6 +26,11 @@ data class MatrixStep(
     val operation: String,
     val matrixState: Array<DoubleArray>
 )
+
+enum class SolveMethod(val displayName: String) {
+    GAUSSIAN_ELIMINATION("Gaussian Elimination"),
+    GAUSS_JORDAN("Gauss-Jordan")
+}
 
 class GaussianEliminationViewModel : ViewModel() {
 
@@ -49,6 +56,8 @@ class GaussianEliminationViewModel : ViewModel() {
         private set
     var isMatrixReady by mutableStateOf(false)
         private set
+    var selectedMethod by mutableStateOf(SolveMethod.GAUSS_JORDAN)
+        private set
 
     fun onEquationsChange(newValue: Float) {
         val newInt = newValue.toInt()
@@ -63,6 +72,15 @@ class GaussianEliminationViewModel : ViewModel() {
         if (newInt != unknowns) {
             unknowns = newInt
             resetUiState()
+        }
+    }
+
+    fun onMethodChange(newMethod: SolveMethod) {
+        if (newMethod != selectedMethod) {
+            selectedMethod = newMethod
+            resultText = ""
+            stepLog = listOf()
+            errorMessage = null
         }
     }
 
@@ -226,7 +244,10 @@ class GaussianEliminationViewModel : ViewModel() {
 
             try {
                 val (log, solutionOrMsg) = withContext(Dispatchers.Default) {
-                    forwardThenBackSub_ShowFinalMatrixFirst(rows, unknowns, a)
+                    when (selectedMethod) {
+                        SolveMethod.GAUSSIAN_ELIMINATION -> solveUsingGaussianElimination(rows, unknowns, a)
+                        SolveMethod.GAUSS_JORDAN -> solveUsingGaussJordan(rows, unknowns, a)
+                    }
                 }
                 withContext(Dispatchers.Main) {
                     stepLog = log
@@ -244,18 +265,108 @@ class GaussianEliminationViewModel : ViewModel() {
         }
     }
 
-    private fun forwardThenBackSub_ShowFinalMatrixFirst(rows: Int, unknowns: Int, aInput: Array<DoubleArray>): Pair<List<MatrixStep>, String> {
+    private fun solveUsingGaussJordan(rows: Int, unknowns: Int, aInput: Array<DoubleArray>): Pair<List<MatrixStep>, String> {
         val a = Array(rows) { r -> aInput[r].clone() }
         val log = mutableListOf<MatrixStep>()
         log.add(MatrixStep("Initial augmented matrix:", deepCopy(a)))
         var pivotRow = 0
         val pivotPositions = mutableListOf<Pair<Int,Int>>()
+
         for (col in 0 until unknowns) {
             if (pivotRow >= rows) break
+
             var iMax = pivotRow
-            for (r in pivotRow + 1 until rows) {
-                if (abs(a[r][col]) > abs(a[iMax][col])) iMax = r
+            if (col > 0) {
+                for (r in pivotRow + 1 until rows) {
+                    if (abs(a[r][col]) > abs(a[iMax][col])) iMax = r
+                }
             }
+
+            log.add(MatrixStep("Step 1 (Find pivot) - Column ${col + 1}: candidate row ${iMax + 1} (value = ${formatSmart(a[iMax][col])})", deepCopy(a)))
+            if (abs(a[iMax][col]) < EPS) {
+                log.add(MatrixStep("Column ${col + 1}: no valid pivot (column ~ 0), skip column", deepCopy(a)))
+                continue
+            }
+            if (iMax != pivotRow) {
+                val tmp = a[pivotRow]; a[pivotRow] = a[iMax]; a[iMax] = tmp
+                log.add(MatrixStep("Step 2 (Swap) - Swap R${pivotRow + 1} <-> R${iMax + 1}", deepCopy(a)))
+            } else {
+                log.add(MatrixStep("Step 2 (Swap) - No swap needed (R${pivotRow + 1} is pivot row)", deepCopy(a)))
+            }
+
+            val pivotValBefore = a[pivotRow][col]
+            if (abs(pivotValBefore - 1.0) > EPS) {
+                for (j in col until unknowns + 1) {
+                    a[pivotRow][j] /= pivotValBefore
+                    if (abs(a[pivotRow][j]) < EPS) a[pivotRow][j] = 0.0
+                }
+                log.add(MatrixStep("Step 3 (Scale) - Divide R${pivotRow + 1} by ${formatSmart(pivotValBefore)} to make leading 1", deepCopy(a)))
+            } else {
+                log.add(MatrixStep("Step 3 (Scale) - Pivot already ~1 in R${pivotRow + 1}", deepCopy(a)))
+            }
+
+            pivotPositions.add(pivotRow to col)
+
+            for (r in 0 until rows) {
+                if (r == pivotRow) continue
+                val factor = a[r][col]
+                if (abs(factor) < EPS) continue
+
+                for (j in col until unknowns + 1) {
+                    a[r][j] -= factor * a[pivotRow][j]
+                    if (abs(a[r][j]) < EPS) a[r][j] = 0.0
+                }
+                log.add(MatrixStep("Step 4 (Eliminate) - R${r + 1} -> R${r + 1} - (${formatSmart(factor)}) * R${pivotRow + 1}", deepCopy(a)))
+            }
+
+            pivotRow += 1
+        }
+
+        log.add(MatrixStep("Final matrix after Gauss-Jordan elimination (Reduced Row Echelon Form):", deepCopy(a)))
+
+        var rank = 0
+        for (r in 0 until rows) {
+            var rowHasPivot = false
+            for (c in 0 until unknowns) {
+                if (abs(a[r][c]) > EPS) { rowHasPivot = true; break }
+            }
+            if (rowHasPivot) rank += 1
+            if (rowHasPivot == false && abs(a[r][unknowns]) > INPUT_EPS) {
+                throw IllegalStateException("Inconsistent system: row ${r + 1} reduces to 0 = ${formatSmart(a[r][unknowns])}")
+            }
+        }
+
+        if (rank < unknowns) {
+            val msg = StringBuilder()
+            msg.append("Rank = $rank, Unknowns = $unknowns → Infinite solutions (free variables exist).\n")
+            msg.append("Gauss-Jordan result is the final Reduced Row Echelon Form shown above.\n")
+            return Pair(log, msg.toString())
+        }
+
+        val solutionText = pivotPositions.mapIndexed { idx, (prow, pcol) ->
+            "x${pcol + 1} = ${formatSmart(a[prow][unknowns])}"
+        }.joinToString("\n")
+
+        return Pair(log, "Unique solution found (by Gauss-Jordan):\n$solutionText")
+    }
+
+    private fun solveUsingGaussianElimination(rows: Int, unknowns: Int, aInput: Array<DoubleArray>): Pair<List<MatrixStep>, String> {
+        val a = Array(rows) { r -> aInput[r].clone() }
+        val log = mutableListOf<MatrixStep>()
+        log.add(MatrixStep("Initial augmented matrix:", deepCopy(a)))
+        var pivotRow = 0
+        val pivotPositions = mutableListOf<Pair<Int,Int>>()
+
+        for (col in 0 until unknowns) {
+            if (pivotRow >= rows) break
+
+            var iMax = pivotRow
+            if (col > 0) {
+                for (r in pivotRow + 1 until rows) {
+                    if (abs(a[r][col]) > abs(a[iMax][col])) iMax = r
+                }
+            }
+
             log.add(MatrixStep("Step 1 (Find pivot) - Column ${col + 1}: candidate row ${iMax + 1} (value = ${formatSmart(a[iMax][col])})", deepCopy(a)))
             if (abs(a[iMax][col]) < EPS) {
                 log.add(MatrixStep("Column ${col + 1}: no valid pivot (column ~ 0), skip column", deepCopy(a)))
@@ -289,7 +400,9 @@ class GaussianEliminationViewModel : ViewModel() {
             }
             pivotRow += 1
         }
+
         log.add(MatrixStep("Final matrix after forward elimination (upper-triangular under pivots):", deepCopy(a)))
+
         for (r in 0 until rows) {
             var allZero = true
             for (c in 0 until unknowns) {
@@ -299,6 +412,7 @@ class GaussianEliminationViewModel : ViewModel() {
                 throw IllegalStateException("Inconsistent system: row ${r + 1} reduces to 0 = ${formatSmart(a[r][unknowns])}")
             }
         }
+
         var rank = 0
         for (r in 0 until rows) {
             var rowHasPivot = false
@@ -313,6 +427,7 @@ class GaussianEliminationViewModel : ViewModel() {
             msg.append("Forward elimination result shown above. Cannot compute unique solution by back-substitution.\n")
             return Pair(log, msg.toString())
         }
+
         val x = DoubleArray(unknowns) { 0.0 }
         val equationsText = mutableListOf<String>()
         for (idx in pivotPositions.size - 1 downTo 0) {
@@ -377,9 +492,52 @@ class GaussianEliminationViewModel : ViewModel() {
     }
 }
 
+fun gcd(a: Long, b: Long): Long {
+    var num1 = abs(a)
+    var num2 = abs(b)
+    while (num2 != 0L) {
+        val temp = num2
+        num2 = num1 % num2
+        num1 = temp
+    }
+    return num1
+}
+
+fun doubleToRationalString(value: Double, maxScale: Int): String? {
+    if (value.isNaN() || value.isInfinite()) return null
+
+    if (abs(value - value.toLong()) < EPS) {
+        return value.toLong().toString()
+    }
+
+    val factor = maxScale.toLong()
+    val scaledValue = value * factor
+    val roundedN = scaledValue.toLong()
+
+    if (abs(scaledValue - roundedN) < EPS) {
+        val numerator = roundedN
+        val denominator = factor
+        val commonDivisor = gcd(numerator, denominator)
+
+        val finalNumerator = numerator / commonDivisor
+        val finalDenominator = denominator / commonDivisor
+
+        return "$finalNumerator/$finalDenominator"
+    }
+
+    return null
+}
+
 fun formatSmart(value: Double, digits: Int = DEFAULT_DISPLAY_DIGITS): String {
     if (value.isNaN()) return "NaN"
     if (value.isInfinite()) return if (value > 0) "∞" else "-∞"
+
+    val maxScale = pow(10.0, digits.toDouble()).toInt()
+    val fractionString = doubleToRationalString(value, maxScale)
+    if (fractionString != null) {
+        return fractionString
+    }
+
     return try {
         val bd = BigDecimal.valueOf(value).setScale(digits, RoundingMode.HALF_UP).stripTrailingZeros()
         val s = bd.toPlainString()
