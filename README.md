@@ -20,7 +20,7 @@ An Android app built with **Jetpack Compose (Material 3)** that solves systems o
 
 ## 📷 Screenshots
 
-| Matrix Size | Input Matrix | Final Result |
+| Gaussian | Gaus-Jordan | Final Result |
 |---------------|----------------|----------------|
 | ![Matrix Size](images/1.png) | ![Input Matrix](images/2.png) | ![Final Result](images/3.png) |
 
